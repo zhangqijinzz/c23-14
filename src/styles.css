@@ -301,13 +301,13 @@ h1 em {
   cursor: grab;
   overflow: hidden;
 }
-.timeline-cue:nth-child(3n) {
+.timeline-cue:nth-of-type(3n) {
   top: 45px;
   background: #e9e5d8;
   border-color: #d9d3be;
   color: #7f765a;
 }
-.timeline-cue:nth-child(3n + 2) {
+.timeline-cue:nth-of-type(3n + 2) {
   top: 5px;
 }
 .timeline-cue.selected {
@@ -315,10 +315,41 @@ h1 em {
   border-color: #97bb4c;
   box-shadow: 0 0 0 2px #e7f1d6;
 }
+.timeline-cue.dragging {
+  cursor: grabbing;
+  background: #b9d878;
+  border-color: #97bb4c;
+  box-shadow: 0 4px 10px rgba(84, 118, 47, 0.25);
+  z-index: 2;
+}
+.timeline-cue.ghost {
+  pointer-events: none;
+  background: transparent;
+  border: 1px dashed #c2d79d;
+  color: transparent;
+  z-index: 0;
+}
 .timeline-hint {
   padding-top: 10px;
   color: #a1a397;
   font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.timeline-undo {
+  border: 1px solid #d9d3be;
+  background: #fcfcf9;
+  color: #7f765a;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 9px;
+  cursor: pointer;
+}
+.timeline-undo:hover {
+  border-color: #97bb4c;
+  color: #54762f;
 }
 .empty-workspace {
   min-height: 195px;

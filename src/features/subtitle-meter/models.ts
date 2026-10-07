@@ -40,6 +40,10 @@ export interface MeterState {
   selectedId: string | null;
   notice: string;
   zoom: number;
+  /** 时间轴可视范围终点；载入项目时确定，拖动条目不会改变它 */
+  viewEndMs: number;
+  /** 是否存在可撤销的上一次拖动 */
+  canUndoDrag: boolean;
 }
 export const emptyState = (): MeterState => ({
   phase: "empty",
@@ -48,4 +52,6 @@ export const emptyState = (): MeterState => ({
   selectedId: null,
   notice: "",
   zoom: 1,
+  viewEndMs: 0,
+  canUndoDrag: false,
 });

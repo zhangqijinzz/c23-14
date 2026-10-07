@@ -161,6 +161,8 @@ export function SubtitleMeter() {
                 vm={vm}
                 selectedId={state.selectedId}
                 zoom={state.zoom}
+                viewEndMs={state.viewEndMs}
+                canUndoDrag={state.canUndoDrag}
               />
               <p className="page-tip">
                 选中字幕块可在「问题检查」中编辑文本与精确时间；拖动时间块可整体调整时段。

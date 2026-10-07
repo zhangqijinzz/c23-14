@@ -1,43 +1,100 @@
+import { useRef, useState } from "react";
 import type { PointerEvent } from "react";
 import type { SubtitleCue, SubtitleProject } from "../models";
+import { computeCueMove } from "../timelineDrag";
 import type { SubtitleMeterViewModel } from "../viewmodels/subtitleMeterViewModel";
+interface DragPreview {
+  cueId: string;
+  startMs: number;
+  endMs: number;
+  originStartMs: number;
+  originEndMs: number;
+  clampedTo: "start" | "end" | null;
+}
+const formatSeconds = (ms: number) => `${(ms / 1000).toFixed(2)}s`;
 export function TimelineModule({
   project,
   vm,
   selectedId,
   zoom,
+  viewEndMs,
+  canUndoDrag,
 }: {
   project: SubtitleProject;
   vm: SubtitleMeterViewModel;
   selectedId: string | null;
   zoom: number;
+  viewEndMs: number;
+  canUndoDrag: boolean;
 }) {
-  const maxTime = Math.max(1000, ...project.cues.map((cue) => cue.endMs));
+  const [preview, setPreview] = useState<DragPreview | null>(null);
+  const [dragNote, setDragNote] = useState("");
+  const suppressClick = useRef(false);
   const trackPointerDown = (
     event: PointerEvent<HTMLButtonElement>,
     cue: SubtitleCue,
   ) => {
+    if (event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    suppressClick.current = false;
     const x0 = event.clientX,
-      start = cue.startMs,
-      end = cue.endMs,
+      origin = { startMs: cue.startMs, endMs: cue.endMs },
       trackWidth =
         event.currentTarget.parentElement?.getBoundingClientRect().width ?? 1;
-    let shift = 0;
-    const move = (moveEvent: globalThis.PointerEvent) => {
-      shift = Math.round(((moveEvent.clientX - x0) / trackWidth) * maxTime);
+    let move = computeCueMove(origin, 0, {
+      minStartMs: 0,
+      maxEndMs: viewEndMs,
+    });
+    const onMove = (moveEvent: globalThis.PointerEvent) => {
+      const desired = Math.round(
+        ((moveEvent.clientX - x0) / trackWidth) * viewEndMs,
+      );
+      move = computeCueMove(origin, desired, {
+        minStartMs: 0,
+        maxEndMs: viewEndMs,
+      });
+      setPreview({
+        cueId: cue.id,
+        startMs: move.startMs,
+        endMs: move.endMs,
+        originStartMs: origin.startMs,
+        originEndMs: origin.endMs,
+        clampedTo: move.clampedTo,
+      });
     };
-    const done = () => {
-      window.removeEventListener("pointerup", done);
-      window.removeEventListener("pointermove", move);
-      if (shift)
-        void vm.editCue(cue.id, {
-          startMs: Math.max(0, start + shift),
-          endMs: Math.max(1, end + shift),
-        });
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onDone);
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("keydown", onKey);
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", done, { once: true });
+    const onCancel = () => {
+      cleanup();
+      setPreview(null);
+      setDragNote("已取消拖动，条目保持原位");
+    };
+    const onKey = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === "Escape") onCancel();
+    };
+    const onDone = () => {
+      cleanup();
+      setPreview(null);
+      if (move.startMs === origin.startMs && move.endMs === origin.endMs)
+        return;
+      suppressClick.current = true;
+      setDragNote(
+        move.clampedTo === "start"
+          ? "已到时间轴起点，无法更早；如需精确时间请在「问题检查」中输入"
+          : move.clampedTo === "end"
+            ? "已到时间轴末尾，无法更晚；如需精确时间请在「问题检查」中输入"
+            : "",
+      );
+      void vm.moveCue(cue.id, move.shiftMs);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onDone, { once: true });
+    window.addEventListener("pointercancel", onCancel, { once: true });
+    window.addEventListener("keydown", onKey);
   };
   return (
     <section className="module timeline-module">
@@ -61,28 +118,72 @@ export function TimelineModule({
       </div>
       <div className="time-ruler">
         <span>00:00</span>
-        <span>{(maxTime / 2000).toFixed(0)}s</span>
-        <span>{(maxTime / 1000).toFixed(0)}s</span>
+        <span>{(viewEndMs / 2000).toFixed(0)}s</span>
+        <span>{(viewEndMs / 1000).toFixed(0)}s</span>
       </div>
       <div className="timeline-track" style={{ minWidth: `${zoom * 100}%` }}>
-        {project.cues.map((cue) => (
-          <button
-            key={cue.id}
-            title={`第 ${cue.index} 条 · ${(cue.startMs / 1000).toFixed(2)}s`}
-            className={`timeline-cue ${selectedId === cue.id ? "selected" : ""}`}
+        {preview && (
+          <span
+            aria-hidden
+            className="timeline-cue ghost"
             style={{
-              left: `${(cue.startMs / maxTime) * 100}%`,
-              width: `${Math.max(2.5, ((cue.endMs - cue.startMs) / maxTime) * 100)}%`,
+              // 与 .timeline-cue 的 3n 行位置模式保持一致，让虚影落在原行
+              top: `${[23, 5, 45][project.cues.findIndex((item) => item.id === preview.cueId) % 3]}px`,
+              left: `${(preview.originStartMs / viewEndMs) * 100}%`,
+              width: `${Math.max(2.5, ((preview.originEndMs - preview.originStartMs) / viewEndMs) * 100)}%`,
             }}
-            onClick={() => vm.selectCue(cue.id)}
-            onPointerDown={(event) => trackPointerDown(event, cue)}
-          >
-            {cue.index}
-          </button>
-        ))}
+          />
+        )}
+        {project.cues.map((cue) => {
+          const shown = preview?.cueId === cue.id ? preview : cue;
+          return (
+            <button
+              key={cue.id}
+              title={`第 ${cue.index} 条 · ${formatSeconds(shown.startMs)} – ${formatSeconds(shown.endMs)}`}
+              className={`timeline-cue ${selectedId === cue.id ? "selected" : ""} ${preview?.cueId === cue.id ? "dragging" : ""}`}
+              style={{
+                left: `${(shown.startMs / viewEndMs) * 100}%`,
+                width: `${Math.max(2.5, ((shown.endMs - shown.startMs) / viewEndMs) * 100)}%`,
+              }}
+              onClick={() => {
+                if (suppressClick.current) {
+                  suppressClick.current = false;
+                  return;
+                }
+                vm.selectCue(cue.id);
+              }}
+              onPointerDown={(event) => trackPointerDown(event, cue)}
+            >
+              {cue.index}
+            </button>
+          );
+        })}
       </div>
       <div className="timeline-hint">
-        拖动时间块调整起止位置 · 点击条目进行编辑
+        {preview ? (
+          <span className="timeline-status">
+            拖动中：{formatSeconds(preview.startMs)} –{" "}
+            {formatSeconds(preview.endMs)}
+            {preview.clampedTo === "start"
+              ? "（已到起点）"
+              : preview.clampedTo === "end"
+                ? "（已到末尾）"
+                : ""}
+            · 松开生效，Esc 取消
+          </span>
+        ) : (
+          <span className="timeline-status">
+            {dragNote || "拖动时间块调整起止位置 · 点击条目进行编辑"}
+          </span>
+        )}
+        {canUndoDrag && (
+          <button
+            className="timeline-undo"
+            onClick={() => void vm.undoLastDrag()}
+          >
+            撤销上次拖动
+          </button>
+        )}
       </div>
     </section>
   );
