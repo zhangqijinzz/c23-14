@@ -11,6 +11,7 @@ import { detectFormat, parseSubtitles } from "../parsers/subtitleParser";
 import { projectRepository } from "../repositories/projectRepository";
 import { downloadSubtitles } from "../services/exportService";
 import { readTextFile } from "../services/fileService";
+import { initialTimelineMs, moveCueRange } from "../timeline";
 export class SubtitleMeterViewModel {
   state: MeterState = emptyState();
   private listeners = new Set<() => void>();
@@ -26,10 +27,11 @@ export class SubtitleMeterViewModel {
   private async commit(
     project: SubtitleProject,
     phase: MeterState["phase"] = "editing",
+    extra: Partial<MeterState> = {},
   ) {
     project.updatedAt = Date.now();
     const issues = detectIssues(project.cues);
-    this.publish({ project, issues, phase, notice: "" });
+    this.publish({ project, issues, phase, notice: "", ...extra });
     try {
       await projectRepository.save(project);
     } catch {
@@ -51,6 +53,8 @@ export class SubtitleMeterViewModel {
           phase: "ready",
           selectedId: project.cues[0]?.id ?? null,
           notice: "已恢复上次编辑",
+          timelineMs: initialTimelineMs(project.cues),
+          lastDrag: null,
         });
     } catch {
       this.publish({ notice: "本地项目暂时无法读取，可继续导入字幕文件" });
@@ -70,11 +74,14 @@ export class SubtitleMeterViewModel {
         updatedAt: Date.now(),
         versions: [],
       };
+      const timelineMs = initialTimelineMs(cues);
       this.publish({
         selectedId: cues[0].id,
         notice: `已解析 ${cues.length} 条字幕`,
+        timelineMs,
+        lastDrag: null,
       });
-      await this.commit(project, "ready");
+      await this.commit(project, "ready", { timelineMs });
     } catch (error) {
       this.publish({
         phase: "error",
@@ -97,7 +104,55 @@ export class SubtitleMeterViewModel {
     const cues = this.state.project.cues.map((cue) =>
       cue.id === id ? { ...cue, ...patch } : cue,
     );
+    this.publish({ lastDrag: null });
     await this.commit({ ...this.state.project, cues });
+  }
+  /**
+   * 拖动提交：在固定的可视范围内夹取起止时间（保持时长、补齐最小可读时长），
+   * 记录拖动前的快照以便撤销；越界时返回明确提示。
+   */
+  async moveCue(id: string, shiftMs: number) {
+    const project = this.state.project;
+    if (!project) return;
+    const cue = project.cues.find((item) => item.id === id);
+    if (!cue || shiftMs === 0) return;
+    const { startMs, endMs, clamped } = moveCueRange(
+      cue,
+      shiftMs,
+      this.state.timelineMs,
+    );
+    if (startMs === cue.startMs && endMs === cue.endMs) return;
+    const cues = project.cues.map((item) =>
+      item.id === id ? { ...item, startMs, endMs } : item,
+    );
+    this.publish({
+      lastDrag: {
+        cueId: id,
+        startMs: cue.startMs,
+        endMs: cue.endMs,
+      },
+    });
+    await this.commit({ ...project, cues });
+    if (clamped && this.state.phase !== "error")
+      this.publish({
+        notice:
+          startMs === 0
+            ? "已到时间轴起点，无法继续左移"
+            : "已到时间轴末尾，无法继续右移",
+      });
+  }
+  async undoLastDrag() {
+    const project = this.state.project;
+    const lastDrag = this.state.lastDrag;
+    if (!project || !lastDrag) return;
+    const cues = project.cues.map((cue) =>
+      cue.id === lastDrag.cueId
+        ? { ...cue, startMs: lastDrag.startMs, endMs: lastDrag.endMs }
+        : cue,
+    );
+    this.publish({ lastDrag: null });
+    await this.commit({ ...project, cues });
+    this.publish({ notice: "已撤销本次拖动" });
   }
   async saveVersion() {
     const project = this.state.project;
@@ -118,6 +173,7 @@ export class SubtitleMeterViewModel {
     const project = this.state.project,
       version = project?.versions.find((item) => item.id === id);
     if (!project || !version) return;
+    this.publish({ lastDrag: null });
     await this.commit({ ...project, cues: structuredClone(version.cues) });
     this.publish({ notice: `已恢复${version.label}` });
   }

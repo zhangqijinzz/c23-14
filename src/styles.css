@@ -300,12 +300,27 @@ h1 em {
     monospace;
   cursor: grab;
   overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+.timeline-cue.dragging {
+  cursor: grabbing;
+  background: #c8e39d;
+  border-color: #7fa23f;
+  box-shadow: 0 3px 10px #4e652455;
+  z-index: 2;
+  transition: none;
 }
 .timeline-cue:nth-child(3n) {
   top: 45px;
   background: #e9e5d8;
   border-color: #d9d3be;
   color: #7f765a;
+}
+.timeline-cue:nth-child(3n).dragging {
+  background: #e3d8ba;
+  border-color: #b39f6e;
+  box-shadow: 0 3px 10px #6a5e3d55;
 }
 .timeline-cue:nth-child(3n + 2) {
   top: 5px;
@@ -315,10 +330,47 @@ h1 em {
   border-color: #97bb4c;
   box-shadow: 0 0 0 2px #e7f1d6;
 }
+.timeline-cue.selected.dragging {
+  box-shadow: 0 3px 10px #4e652455;
+}
 .timeline-hint {
   padding-top: 10px;
   color: #a1a397;
   font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.drag-preview-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  font:
+    9px "DM Mono",
+    monospace;
+  color: #5f7a35;
+}
+.drag-preview-hint .drag-clamped {
+  color: #b5791f;
+  font-weight: 700;
+}
+.drag-cancel-hint {
+  color: #a7aa9f;
+}
+.drag-undo {
+  border: 1px solid #d9e0c5;
+  background: #f7faef;
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: #5f7a35;
+  font-size: 9px;
+  cursor: pointer;
+}
+.drag-undo:hover {
+  background: #eef5dc;
 }
 .empty-workspace {
   min-height: 195px;
